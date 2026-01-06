@@ -1,2 +1,18 @@
-*.DS_Store
-*~
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temp files
+/tmp/
+*.tmp
+
+# Nipe runtime
+/tmp/nipe/
+/tmp/nipe_torrc
+/tmp/nipe_pf.conf
