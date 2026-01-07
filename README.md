@@ -14,7 +14,13 @@ Route **100% of your system traffic** through the Tor network with kill switch p
 
 ## 🚀 Quick Start
 
-### Install Tor (if needed)
+### 📥 Download Binary (Recommended)
+No installation required! Just download the latest release for your OS:
+- [**Windows (x64)**](https://github.com/Arunkumarkethana/tor-war/releases/latest)
+- [**macOS (Intel & Silicon)**](https://github.com/Arunkumarkethana/tor-war/releases/latest)
+- [**Linux (x64)**](https://github.com/Arunkumarkethana/tor-war/releases/latest)
+
+### Install Tor (Required)
 ```bash
 # macOS
 brew install tor
