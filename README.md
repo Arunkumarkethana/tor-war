@@ -2,7 +2,7 @@
 
 > **Advanced Tor Network Security Gateway - Rewritten in Rust**
 > Nipe acts as a gateway (transparent proxy) that routes all your computer's internet traffic through the Tor network.
-> 📚 **New to Tor?** Check out our [Beginner's Guide to How Nipe & Tor Work](docs/THEORY.md) for a simple explanation of Onion Routing, Circuits, and Bridges.
+> 📚 **New to Tor?** Check out our [Beginner's Guide](docs/THEORY.md) or read the [Project Abstract](docs/ABSTRACT.md).
 
 Route **100% of your system traffic** through the Tor network with kill switch protection. Built with Rust for maximum performance and safety.
 
