@@ -25,7 +25,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Start Nipe (enable Tor routing)
-    Start,
+    Start {
+        /// Select exit node country (e.g., "us", "de")
+        #[arg(short, long)]
+        country: Option<String>,
+    },
     /// Stop Nipe (disable Tor routing)
     Stop,
     /// Check connection status
@@ -50,7 +54,10 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    // Check for root/sudo
+    let cli = Cli::parse();
+    let config = NipeConfig::load().unwrap_or_default();
+
+    // Check for root/sudo unless just checking version/help (which clap handles before this)
     if !is_root() {
         eprintln!(
             "{}",
@@ -61,89 +68,25 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
-    let cli = Cli::parse();
-    let config = NipeConfig::load().unwrap_or_default();
-
     match cli.command {
-        Commands::Start => {
+        Commands::Start { country } => {
             println!("{}", "━".repeat(50).bright_blue());
             println!("{}", "  Starting Nipe...".bright_blue().bold());
             println!("{}", "━".repeat(50).bright_blue());
 
-            // Check and install Tor if needed
-            println!("{}", "[+] Checking Tor installation...".cyan());
-            if let Err(e) = installer::Installer::check_and_install_tor() {
-                eprintln!("{} {}", "[✗] Tor installation failed:".bright_red(), e);
-                eprintln!(
-                    "\n{}",
-                    "Please install Tor manually and try again.".yellow()
-                );
-                std::process::exit(1);
-            }
+            // Ensure all prerequisites are met (Tor, self-install, bridges)
+            installer::Installer::ensure_prerequisites(&config)?;
 
-            // Check for obfs4proxy if bridges are enabled and no custom path is provided
-            if config.tor.use_bridges && config.tor.client_transport_plugin.is_none() {
-                if let Err(_) = installer::Installer::check_obfs4proxy() {
-                    eprintln!("{}", "[!] Warning: Bridge support is enabled but 'obfs4proxy' was not found in PATH.".yellow());
-                    eprintln!(
-                        "{}",
-                        "    Tor functionality might fail if bridges are required.".yellow()
-                    );
-                    eprintln!("{}", "    Please install it system-wide (e.g. 'brew install obfs4proxy' or 'apt install obfs4proxy').".yellow());
-                }
-            }
+            // Prepare configuration (possibly overridden by CLI args)
+            let run_config = if let Some(c) = country {
+                let mut cfg = config.clone();
+                cfg.tor.country = Some(c);
+                cfg
+            } else {
+                config
+            };
 
-            // Auto-install to system path (OS-specific)
-            #[cfg(target_os = "windows")]
-            {
-                let install_dir = std::path::Path::new("C:\\Program Files\\Nipe");
-                let install_path = install_dir.join("nipe.exe");
-                if let Ok(current_exe) = std::env::current_exe() {
-                    if current_exe != install_path {
-                        println!("{}", "[+] Checking system-wide installation...".cyan());
-                        if !install_dir.exists() {
-                            let _ = std::fs::create_dir_all(install_dir);
-                        }
-                        match std::fs::copy(&current_exe, &install_path) {
-                            Ok(_) => println!(
-                                "{}",
-                                "[✓] Installed Nipe to C:\\Program Files\\Nipe\\nipe.exe".green()
-                            ),
-                            Err(e) => eprintln!(
-                                "{} {}",
-                                "[!] Failed to install system-wide (ignoring):".yellow(),
-                                e
-                            ),
-                        }
-                    }
-                }
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                // Existing Unix auto‑install logic
-                if let Ok(current_exe) = std::env::current_exe() {
-                    let install_dir = std::path::Path::new("/usr/local/bin");
-                    let install_path = install_dir.join("nipe");
-                    if current_exe != install_path {
-                        println!("{}", "[+] Checking system-wide installation...".cyan());
-                        if !install_dir.exists() {
-                            let _ = std::fs::create_dir_all(install_dir);
-                        }
-                        match std::fs::copy(&current_exe, &install_path) {
-                            Ok(_) => {
-                                println!("{}", "[✓] Installed Nipe to /usr/local/bin/nipe".green())
-                            }
-                            Err(e) => eprintln!(
-                                "{} {}",
-                                "[!] Failed to install system-wide (ignoring):".yellow(),
-                                e
-                            ),
-                        }
-                    }
-                }
-            }
-
-            let mut engine = NipeEngine::new(config)?;
+            let mut engine = NipeEngine::new(run_config)?;
 
             match engine.start().await {
                 Ok(_) => {

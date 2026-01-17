@@ -26,6 +26,7 @@ No installation required! Just download the latest release for your OS:
 brew install tor
 
 # Linux (Debian/Ubuntu)
+sudo apt install tor
 # Windows
 # 1. Download the Tor Expert Bundle from https://www.torproject.org/download/tor/
 # 2. Extract and add the folder containing `tor.exe` to your PATH, or place it in `C:\Program Files\Tor\`.
@@ -50,13 +51,16 @@ cargo build --release --target x86_64-pc-windows-gnu
 # Start Nipe (routes all traffic through Tor)
 sudo ./target/release/nipe start
 
+# Start with specific Exit Node Country (e.g., Germany)
+sudo ./target/release/nipe start --country de
+
 # Check status
 sudo ./target/release/nipe status
 
 # Rotate IP immediately
 sudo ./target/release/nipe rotate
 
-# Real-time monitoring dashboard
+# Real-time TUI Monitoring Dashboard
 sudo ./target/release/nipe monitor
 
 # Stop Nipe (restore normal internet)
@@ -92,6 +96,7 @@ nipe stop
 ### 1. Kill Switch
 - Blocks **ALL** non-Tor traffic using macOS Packet Filter or Linux iptables
 - If Tor fails, internet is cut instantly
+- **Fail-Safe Rollback**: Automatically restores connection if startup fails (prevents lockouts)
 - Zero IP leak guarantee
 
 ### 2. Stream Isolation
@@ -112,13 +117,14 @@ nipe stop
 
 | Command | Description |
 |---------|-------------|
-| `sudo ./target/release/nipe start` | Start Tor routing with kill switch |
-| `sudo ./target/release/nipe stop` | Stop and restore normal internet |
-| `sudo ./target/release/nipe status` | Check connection status and IP |
-| `sudo ./target/release/nipe rotate` | Get new IP immediately |
-| `sudo ./target/release/nipe monitor` | Real-time dashboard (Ctrl+C to exit) |
-| `sudo ./target/release/nipe restart` | Restart service |
-| `sudo ./target/release/nipe config` | Show current configuration |
+| `nipe start` | Start Tor routing with kill switch |
+| `nipe start --country <code>` | Start with specific exit country (e.g., `us`, `de`, `fr`) |
+| `nipe stop` | Stop and restore normal internet |
+| `nipe status` | Check connection status and IP |
+| `nipe rotate` | Get new IP immediately |
+| `nipe monitor` | Real-time TUI dashboard (Controls: `q` to quit, `r` to rotate) |
+| `nipe restart` | Restart service |
+| `nipe config` | Show current configuration |
 
 ---
 
@@ -148,9 +154,10 @@ Config file: `~/.config/nipe/config.toml`
 [tor]
 socks_port = 9050
 control_port = 9051
-data_directory = "/tmp/nipe/tor-data"
+data_directory = "/var/lib/nipe/tor-data"
 bridges = []
 exit_nodes = []
+country = "us" # Optional: Set default country
 
 [firewall]
 enable_kill_switch = true
@@ -195,6 +202,13 @@ interval_seconds = 60
 │  │      Tor Network            │   │
 │  │   SOCKS Proxy: 9050         │   │
 │  │   Control Port: 9051        │   │
+│  └─────────────────────────────┘   │
+│               │                     │
+│               ▼                     │
+│  ┌─────────────────────────────┐   │
+│  │  Secure Process Management  │   │
+│  │   ✓ Runs as unprivileged    │   │
+│  │   ✓ Data in /var/lib/nipe   │   │
 │  └─────────────────────────────┘   │
 └──────────────┬──────────────────────┘
                │
@@ -267,10 +281,10 @@ nipe-Tor/
 ps aux | grep tor
 
 # View Tor logs
-tail -f /tmp/nipe/tor-data/debug.log
+sudo tail -f /var/lib/nipe/tor.log
 
 # Test Tor directly
-tor -f /tmp/nipe_torrc
+tor -f /var/lib/nipe/torrc
 ```
 
 ### "Permission denied"
@@ -304,8 +318,10 @@ sudo iptables -L -n
 
 ## 🔐 Security Notes
 
-- **Root Required**: Nipe needs root to modify firewall rules
-- **Kill Switch**: Blocks ALL non-Tor traffic (including LAN by default)
+- **Root Required**: Nipe needs root to modify firewall rules, but drops privileges for the Tor process.
+- **Kill Switch**: Blocks ALL non-Tor traffic (including LAN by default).
+- **Secure Defaults**: Data is stored in restricted `/var/lib/nipe` directories.
+- **Fail-Safe**: If the engine crashes, networking is restored to prevent lockouts.
 - **No Logging**: Nipe doesn't log your traffic
 - **Open Source**: Audit the code yourself
 - **Tor Network**: Subject to Tor network limitations

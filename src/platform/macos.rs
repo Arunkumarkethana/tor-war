@@ -49,7 +49,8 @@ block drop out quick on $ext_if all
 
         // Enable PF with rules
         let output = Command::new("pfctl")
-            .args(&["-ef", rules_path])
+            .args(["-ef", rules_path])
+            .stdin(std::process::Stdio::null())
             .output()
             .map_err(|e| NipeError::FirewallError(format!("Failed to enable PF: {}", e)))?;
 
@@ -88,27 +89,28 @@ block drop out quick on $ext_if all
         let service = self.service.as_ref().unwrap_or(&default_service);
 
         // Set SOCKS proxy
-        let output = Command::new("networksetup")
-            .args(&[
+        let status = Command::new("networksetup")
+            .args([
                 "-setsocksfirewallproxy",
                 service,
                 "127.0.0.1",
                 &port.to_string(),
             ])
-            .output()?;
+            .status()
+            .map_err(|e| NipeError::FirewallError(e.to_string()))?;
 
-        if !output.status.success() {
+        if !status.success() {
             return Err(NipeError::FirewallError(
                 "Failed to set SOCKS proxy".to_string(),
             ));
         }
 
-        // Enable SOCKS proxy
-        let output = Command::new("networksetup")
-            .args(&["-setsocksfirewallproxystate", service, "on"])
-            .output()?;
+        // Enable it
+        let status = Command::new("networksetup")
+            .args(["-setsocksfirewallproxystate", service, "on"])
+            .status()?;
 
-        if !output.status.success() {
+        if !status.success() {
             return Err(NipeError::FirewallError(
                 "Failed to enable SOCKS proxy".to_string(),
             ));
@@ -124,13 +126,12 @@ block drop out quick on $ext_if all
         let default_service = "Wi-Fi".to_string();
         let service = self.service.as_ref().unwrap_or(&default_service);
 
-        let output = Command::new("networksetup")
-            .args(&["-setsocksfirewallproxystate", service, "off"])
-            .output()?;
+        // Disable SOCKS proxy
+        let _ = Command::new("networksetup")
+            .args(["-setsocksfirewallproxystate", service, "off"])
+            .status();
 
-        if !output.status.success() {
-            warn!("Failed to disable SOCKS proxy on {}", service);
-        }
+        self.disable_kill_switch()?;
 
         info!("System SOCKS proxy disabled");
         Ok(())
@@ -140,7 +141,7 @@ block drop out quick on $ext_if all
 impl MacOSFirewall {
     fn detect_interface() -> Result<String> {
         let output = Command::new("route")
-            .args(&["get", "default"])
+            .args(["get", "default"])
             .output()
             .map_err(|_e| NipeError::InterfaceNotFound)?;
 

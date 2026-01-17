@@ -1,9 +1,98 @@
+use crate::config::NipeConfig;
+use colored::Colorize;
 use std::process::Command;
 use tracing::info;
 
 pub struct Installer;
 
 impl Installer {
+    pub fn ensure_prerequisites(config: &NipeConfig) -> anyhow::Result<()> {
+        // 1. Check Tor
+        println!("{}", "[+] Checking Tor installation...".cyan());
+        if let Err(e) = Self::check_and_install_tor() {
+            eprintln!("{} {}", "[✗] Tor installation failed:".bright_red(), e);
+            eprintln!(
+                "\n{}",
+                "Please install Tor manually and try again.".yellow()
+            );
+            std::process::exit(1);
+        }
+
+        // 2. Check obfs4proxy
+        if config.tor.use_bridges
+            && config.tor.client_transport_plugin.is_none()
+            && Self::check_obfs4proxy().is_err()
+        {
+            eprintln!(
+                "{}",
+                "[!] Warning: Bridge support is enabled but 'obfs4proxy' was not found in PATH."
+                    .yellow()
+            );
+            eprintln!(
+                "{}",
+                "    Tor functionality might fail if bridges are required.".yellow()
+            );
+            eprintln!("{}", "    Please install it system-wide (e.g. 'brew install obfs4proxy' or 'apt install obfs4proxy').".yellow());
+        }
+
+        // 3. Self-install
+        Self::check_and_install_system_wide()?;
+
+        Ok(())
+    }
+
+    fn check_and_install_system_wide() -> anyhow::Result<()> {
+        #[cfg(target_os = "windows")]
+        {
+            let install_dir = std::path::Path::new("C:\\Program Files\\Nipe");
+            let install_path = install_dir.join("nipe.exe");
+            if let Ok(current_exe) = std::env::current_exe() {
+                if current_exe != install_path {
+                    println!("{}", "[+] Checking system-wide installation...".cyan());
+                    if !install_dir.exists() {
+                        let _ = std::fs::create_dir_all(install_dir);
+                    }
+                    match std::fs::copy(&current_exe, &install_path) {
+                        Ok(_) => println!(
+                            "{}",
+                            "[✓] Installed Nipe to C:\\Program Files\\Nipe\\nipe.exe".green()
+                        ),
+                        Err(e) => eprintln!(
+                            "{} {}",
+                            "[!] Failed to install system-wide (ignoring):".yellow(),
+                            e
+                        ),
+                    }
+                }
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            if let Ok(current_exe) = std::env::current_exe() {
+                let install_dir = std::path::Path::new("/usr/local/bin");
+                let install_path = install_dir.join("nipe");
+                // Don't try to install if we are running from the target path
+                if current_exe != install_path {
+                    println!("{}", "[+] Checking system-wide installation...".cyan());
+                    if !install_dir.exists() {
+                        let _ = std::fs::create_dir_all(install_dir);
+                    }
+                    // simple copy
+                    match std::fs::copy(&current_exe, &install_path) {
+                        Ok(_) => {
+                            println!("{}", "[✓] Installed Nipe to /usr/local/bin/nipe".green())
+                        }
+                        Err(e) => eprintln!(
+                            "{} {}",
+                            "[!] Failed to install system-wide (ignoring):".yellow(),
+                            e
+                        ),
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn check_and_install_tor() -> anyhow::Result<()> {
         // Check if Tor is installed
         if Self::is_tor_installed() {
@@ -77,7 +166,7 @@ impl Installer {
 
         // Install Tor
         println!("Installing Tor via Homebrew (this may take a minute)...");
-        let output = Command::new("brew").args(&["install", "tor"]).status()?;
+        let output = Command::new("brew").args(["install", "tor"]).status()?;
 
         if output.success() {
             println!("✅ Tor installed successfully!");

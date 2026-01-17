@@ -1,0 +1,22 @@
+FROM kalilinux/kali-rolling
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    tor \
+    iptables \
+    curl \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy binary (assumes it's already built)
+COPY target/release/nipe /usr/local/bin/nipe
+COPY packaging/debian/control /tmp/control
+
+# Create users/groups if needed
+# (Kali runs as root by default in Docker, which mimics Nipe's requirement)
+
+# Verification script
+COPY tests/verify_nipe.sh /usr/local/bin/verify_nipe.sh
+RUN chmod +x /usr/local/bin/verify_nipe.sh
+
+CMD ["/usr/local/bin/verify_nipe.sh"]

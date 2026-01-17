@@ -1,116 +1,186 @@
+use crate::config::NipeConfig;
+use crate::engine::NipeEngine;
 use crate::status::ConnectionStatus;
-use colored::Colorize;
+use anyhow::Result;
+use crossterm::{
+    event::{self, Event, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph},
+    Terminal,
+};
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio::time::Instant;
 
-pub struct Monitor;
+pub struct Monitor {
+    config: NipeConfig,
+}
 
 impl Monitor {
     pub fn new() -> Self {
-        Self
+        Self {
+            config: NipeConfig::load().unwrap_or_default(),
+        }
     }
 
-    pub async fn run(&self) -> anyhow::Result<()> {
-        // Clear screen and hide cursor
-        print!("\x1B[2J\x1B[?25l");
+    pub async fn run(&self) -> Result<()> {
+        // Setup terminal
+        enable_raw_mode()?;
+        let mut stdout = std::io::stdout();
+        execute!(stdout, EnterAlternateScreen)?;
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend)?;
 
-        // Handle Ctrl+C gracefully
-        let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let r = running.clone();
+        let res = self.run_app(&mut terminal).await;
 
-        ctrlc::set_handler(move || {
-            r.store(false, std::sync::atomic::Ordering::SeqCst);
-        })
-        .ok();
+        // Restore terminal
+        disable_raw_mode()?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+        terminal.show_cursor()?;
 
-        while running.load(std::sync::atomic::Ordering::SeqCst) {
-            // Move cursor to top
-            print!("\x1B[H");
-
-            // Display dashboard
-            self.display_dashboard().await;
-
-            // Wait before next update
-            sleep(Duration::from_secs(5)).await;
+        if let Err(err) = res {
+            println!("{:?}", err)
         }
-
-        // Show cursor and clear screen
-        print!("\x1B[?25h\x1B[2J\x1B[H");
-        println!("\n{}", "[✓] Monitor stopped".yellow());
 
         Ok(())
     }
 
-    async fn display_dashboard(&self) {
-        println!("{}", "═".repeat(70).bright_blue());
-        println!(
-            "{}",
-            "                  NIPE REAL-TIME MONITOR                  "
-                .bright_blue()
-                .bold()
-        );
-        println!("{}", "═".repeat(70).bright_blue());
-        println!();
+    async fn run_app<B: ratatui::backend::Backend>(
+        &self,
+        terminal: &mut Terminal<B>,
+    ) -> Result<()> {
+        let mut last_tick = Instant::now();
+        let tick_rate = Duration::from_millis(250);
 
-        // Get status
-        match ConnectionStatus::check().await {
-            Ok(status) => {
-                if status.is_tor {
-                    println!(
-                        "  {} {}",
-                        "Connection:".bold(),
-                        "🟢 ACTIVE & SECURE".bright_green().bold()
-                    );
-                    println!(
-                        "  {} {}",
-                        "Current IP:".bold(),
-                        status.current_ip.bright_cyan()
-                    );
-                } else {
-                    println!(
-                        "  {} {}",
-                        "Connection:".bold(),
-                        "🔴 INACTIVE".bright_red().bold()
-                    );
+        let mut status_msg = "Checking...".to_string();
+        let mut ip_info = "Unknown".to_string();
+        let mut is_secure = false;
+
+        // Initial check
+        if let Ok(status) = ConnectionStatus::check().await {
+            is_secure = status.is_tor;
+            ip_info = status.current_ip;
+            status_msg = if is_secure {
+                "SECURE".to_string()
+            } else {
+                "UNSECURE".to_string()
+            };
+        }
+
+        loop {
+            terminal.draw(|f| {
+                let size = f.size();
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .margin(1)
+                    .constraints(
+                        [
+                            Constraint::Length(3), // Title
+                            Constraint::Min(5),    // Main Content
+                            Constraint::Length(3), // Footer
+                        ]
+                        .as_ref(),
+                    )
+                    .split(size);
+
+                // Title
+                let title = Paragraph::new("Nipe Security Monitor")
+                    .style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .block(Block::default().borders(Borders::ALL));
+                f.render_widget(title, chunks[0]);
+
+                // Main Status
+                let status_color = if is_secure { Color::Green } else { Color::Red };
+                let status_text = vec![
+                    Line::from(vec![
+                        Span::raw("Status: "),
+                        Span::styled(
+                            status_msg.clone(),
+                            Style::default()
+                                .fg(status_color)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]),
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::raw("Current IP: "),
+                        Span::styled(ip_info.clone(), Style::default().fg(Color::Yellow)),
+                    ]),
+                    Line::from(""),
+                    Line::from(vec![
+                        Span::raw("Exit Country: "),
+                        Span::styled(
+                            self.config
+                                .tor
+                                .country
+                                .clone()
+                                .unwrap_or("Random".to_string()),
+                            Style::default().fg(Color::Blue),
+                        ),
+                    ]),
+                ];
+
+                let main_block = Paragraph::new(status_text)
+                    .block(
+                        Block::default()
+                            .title("Connection Info")
+                            .borders(Borders::ALL),
+                    )
+                    .style(Style::default().fg(Color::White));
+                f.render_widget(main_block, chunks[1]);
+
+                // Footer
+                let footer = Paragraph::new("Press 'q' to Quit | 'r' to Rotate Identity")
+                    .style(Style::default().fg(Color::Gray))
+                    .block(Block::default().borders(Borders::ALL));
+                f.render_widget(footer, chunks[2]);
+            })?;
+
+            let timeout = tick_rate
+                .checked_sub(last_tick.elapsed())
+                .unwrap_or_else(|| Duration::from_secs(0));
+
+            if crossterm::event::poll(timeout)? {
+                if let Event::Key(key) = event::read()? {
+                    match key.code {
+                        KeyCode::Char('q') => return Ok(()),
+                        KeyCode::Char('r') => {
+                            status_msg = "Rotating...".to_string();
+                            // Non-blocking rotation attempt (spawn a task or just do it blocking for now)
+                            // Ideally we shouldn't block the UI thread too long
+                            if let Ok(engine) = NipeEngine::new(self.config.clone()) {
+                                let _ = engine.rotate().await;
+                                // Re-check status
+                                if let Ok(status) = ConnectionStatus::check().await {
+                                    is_secure = status.is_tor;
+                                    ip_info = status.current_ip;
+                                    status_msg = if is_secure {
+                                        "SECURE".to_string()
+                                    } else {
+                                        "UNSECURE".to_string()
+                                    };
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
-            Err(_) => {
-                println!(
-                    "  {} {}",
-                    "Connection:".bold(),
-                    "⚠️  ERROR CHECKING STATUS".bright_yellow().bold()
-                );
+
+            if last_tick.elapsed() >= tick_rate {
+                // Periodic refresh could go here if needed, but we rely on manual refresh/events for now or slow poll
+                last_tick = Instant::now();
             }
         }
-
-        println!();
-
-        // System info
-        println!("  {} {}", "Kill Switch:".bold(), "✓ Enabled".green());
-        println!("  {} {}", "Stream Isolation:".bold(), "✓ Active".green());
-        println!(
-            "  {} {}",
-            "Auto-Rotation:".bold(),
-            "Every 60 seconds".cyan()
-        );
-
-        println!();
-        println!("{}", "─".repeat(70).bright_black());
-        println!(
-            "  {}",
-            "Press Ctrl+C to exit | Updates every 5 seconds".bright_black()
-        );
-        println!("{}", "═".repeat(70).bright_blue());
-
-        // Pad the rest of the screen
-        for _ in 0..10 {
-            println!();
-        }
-    }
-}
-
-impl Default for Monitor {
-    fn default() -> Self {
-        Self::new()
     }
 }

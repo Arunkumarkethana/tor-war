@@ -22,6 +22,8 @@ pub struct TorConfig {
     pub bridges: Vec<String>,
     #[serde(default)]
     pub exit_nodes: Vec<String>,
+    #[serde(default)]
+    pub country: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,11 +46,12 @@ impl Default for NipeConfig {
                 socks_port: 9050,
                 control_port: 9051,
                 dns_port: 9061,
-                data_directory: PathBuf::from("/tmp/nipe/tor-data"),
+                data_directory: PathBuf::from("/var/lib/nipe/tor-data"),
                 use_bridges: false,
                 client_transport_plugin: None,
                 bridges: vec![],
                 exit_nodes: vec![],
+                country: None,
             },
             firewall: FirewallConfig {
                 enable_kill_switch: true,

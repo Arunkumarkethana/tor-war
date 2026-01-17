@@ -1,0 +1,12 @@
+Package: nipe
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: Arunkumarkethana <your.email@example.com>
+Depends: tor, iptables
+Description: Advanced Tor Network Security Gateway
+ Nipe acts as a gateway (transparent proxy) that routes all your
+ computer's internet traffic through the Tor network. It includes features
+ like a Kill Switch, Stream Isolation, and Geo-IP selection.
+ Rewritten in Rust for performance and reliability.
